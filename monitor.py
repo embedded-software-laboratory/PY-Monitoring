@@ -8,7 +8,11 @@ class MonitoredFormula:
         if isinstance(self.formula, (AP, X, W)):
             pass # Request for the formula itself is implicit and no subrequests are created
         elif isinstance(self.formula, BinaryOperator):
-            self.depends_on = [MonitoredFormula(self.formula.children[0]).init_fn(), MonitoredFormula(self.formula.children[1]).init_fn()]
+            if isinstance(self.formula, U):
+                self.depends_on =  [MonitoredFormula(self.formula.children[0]).init_fn()]
+                self.depends_on2 = [MonitoredFormula(self.formula.children[1]).init_fn()]
+            else:
+                self.depends_on = [MonitoredFormula(self.formula.children[0]).init_fn(), MonitoredFormula(self.formula.children[1]).init_fn()]
         elif isinstance(self.formula, UnaryOperator): # Remaining UnaryOperators are F, G and Not
             self.depends_on = [MonitoredFormula(self.formula.children[0]).init_fn()]
         return self
@@ -17,6 +21,7 @@ class MonitoredFormula:
         self.formula = formula
         self.mode = ""
         self.depends_on = []
+        self.depends_on2 = []
         self.verdict = ("_", "") # Never evaluated
 
     def __find_eval(self, formula):
@@ -34,6 +39,39 @@ class MonitoredFormula:
             x.evaluate(aps)
         if isinstance(self.formula, AP):
             self.verdict = (Verdict.TRUE if self.formula.name in aps else Verdict.FALSE, "")
+        elif isinstance(self.fromula, U):
+            left_child_evals = list(map(lambda x: x.get_verdict(), self.depends_on))
+            right_child_evals = list(map(lambda x: x.get_verdict(), self.depends_on2))
+            k = -1
+            for (kp, v) in enumerate(right_child_evals): # First find the smallest k to satisfy Exists k \leq j: V_2,k = \bot
+                if v == Verdict.FALSE:
+                    k = kp
+                    break
+            if k != -1: # If such a k exists, check the Forall k \leq j: V_1,k = \bot condition
+                if all(map(lambda x: x == Verdict.FALSE, left_child_evals[:k])):
+                    self.verdict = Verdict.FALSE
+                    return
+
+            
+            js = fiter(lambda x: x[1] == Verdict.TRUE, enumerate(right_child_evals)) # Find the smallest j to satsify V_2,j = T
+            if len(js) > 0:
+                j = js[0]
+                # Check if for all k < j: V_1,k = T
+                if all(map(lambda x: x == Verdit.TRUE, left_child_evals[:j])):
+                    self.verdict = Verdict.TRUE
+                    return
+        
+            js = filter(lambda x: x[1] == Verdict.TRUE || x[1] == Verdict.UNKNOWN_TRUE, enumerate(right_child_evals)) # Finds the smallest j to satisfy V_2,j \in {T, ?_T}
+            if len(js) > 0:
+                j = js[0]
+                # Check if for all k < j: V_1,k \in {T, ?_T}
+                if all(map(lambda x: x == Verdit.TRUE || x == Verdict.UNKNOWN_TRUE, left_child_evals[:j])):
+                    self.verdict = Verdict.UNKNOWN_TRUE
+                    return
+
+            self.verdict = Verdict.UNKNOWN_FALSE
+
+            
         elif isinstance(self.formula, BinaryOperator):
             eval_table = eval_tables[type(self.formula)][self.mode]
             if self.mode == "L":
@@ -73,11 +111,12 @@ class MonitoredFormula:
                 self.depends_on.append(MonitoredFormula(self.formula.children[0]).init_fn())
             elif isinstance(self.formula, U):
                 self.depends_on.append(MonitoredFormula(self.formula.children[0]).init_fn())
-                self.depends_on.append(MonitoredFormula(self.formula.children[1]).init_fn())
+                self.depends_on2.append(MonitoredFormula(self.formula.children[1]).init_fn())
 
             self.mode = self.verdict[1] # Change to the required mode
         else:
             self.depends_on = []
+            self.depends_on2 = []
 
     def __str__(self):
         return "R[{}]{}{}".format(self.formula, self.mode, self.verdict)
